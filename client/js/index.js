@@ -1,8 +1,17 @@
 
-exports.GoSock = function (url) {
+exports.GoSock = function (url, options) {
   this.url = url;
   this.events = {};
   this.ws = new WebSocket(url);
+  this.connected = this.ws.readyState === 1 ? true : false;
+  this.options = {
+    retries: 5,
+    retryInterval: 3000,
+  };
+
+  if (options) {
+    this.options = Object.assign(this.options, options);
+  }
 
   this.on = function(event, callback) {
     if (this.events[event]) {
@@ -27,11 +36,40 @@ exports.GoSock = function (url) {
   this.ws.onmessage(function(data){
     var delimIndex = data.indexOf(' ')
     var event = data.substr(0, delimIndex);
-    this.emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
+
+    try {
+      data = JSON.parse(data.substr(delimIndex + 1));
+      this.emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
+    } catch() {
+      this.emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
+    }
   });
 
   this.ws.onclose = function() {
     this.emit('close', null);
+    this.connected = 0;
+    this._reconnect();
+  }
+
+  this._reconnect = function() {
+    if (this.options.retries > 0) {
+      counter = 0;
+      var retry = setInterval(function(){
+        if (counter === this.options.retries) {
+          clearInterval(retry);
+        }
+
+        if (!this.connected) {
+          this.ws = new WebSocket(this.url);
+          if (this.ws.readyState === 1) {
+            this.connected = true;
+            clearInterval(retry);
+          }
+        }
+
+        counter++;
+      }, this.options.retryInterval);
+    }
   }
 
   this.ws.onerror = function(err) {
@@ -40,5 +78,16 @@ exports.GoSock = function (url) {
 
   this.close = function() {
     this.ws.close();
+    this.connected = 0;
+  }
+
+  this.send(event, data) {
+    switch (typeof data) {
+      case 'object':
+        this.ws.send(event + ' ' + JSON.stringify(data));
+        break;
+      default:
+        this.ws.send(event + ' ' + data);
+    }
   }
 };
