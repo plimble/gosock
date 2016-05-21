@@ -25,5 +25,5 @@ sock.on('new.msg.response', function(data){
   console.log(data);
 });
 
-this.send('new.msg', {data: 'hello world'});
+sock.send('new.msg', {data: 'hello world'});
 ```
