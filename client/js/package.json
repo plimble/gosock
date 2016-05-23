@@ -1,6 +1,6 @@
 {
   "name": "gosock",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -14,5 +14,8 @@
     "websocket"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "wolfy87-eventemitter": "^5.0.0"
+  }
 }

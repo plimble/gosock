@@ -1,7 +1,9 @@
+var EventEmitter = require('wolfy87-eventemitter');
+
 
 exports.GoSock = function (url, options) {
   this.url = url;
-  this.events = {};
+  this.ee = new EventEmitter();
   this.ws = new WebSocket(url);
   this.connected = this.ws.readyState === 1 ? true : false;
   this.options = {
@@ -14,23 +16,15 @@ exports.GoSock = function (url, options) {
   }
 
   this.on = function(event, callback) {
-    if (this.events[event]) {
-      this.events[event].push(callback);
-    } else {
-      this.events[event] = [callback];
-    }
+    this.ee.addListener(event, callback);
   }
 
-  this.emit = function(event, data) {
-    if (this.events[event]) {
-      for (var i = 0; i < this.events[event].length; i++) {
-        this.events[event][i](data);
-      }
-    }
+  this._emit = function(event, data) {
+    this.ee.emitEvent(event, [data]);
   }
 
   this.ws.onopen(function(){
-    this.emit('open', null);
+    this._emit('open', null);
   });
 
   this.ws.onmessage(function(data){
@@ -39,14 +33,14 @@ exports.GoSock = function (url, options) {
 
     try {
       data = JSON.parse(data.substr(delimIndex + 1));
-      this.emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
+      this._emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
     } catch() {
-      this.emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
+      this._emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
     }
   });
 
   this.ws.onclose = function() {
-    this.emit('close', null);
+    this._emit('close', null);
     this.connected = 0;
     this._reconnect();
   }
@@ -73,7 +67,7 @@ exports.GoSock = function (url, options) {
   }
 
   this.ws.onerror = function(err) {
-    this.emit('error', err);
+    this._emit('error', err);
   }
 
   this.close = function() {
