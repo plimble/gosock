@@ -26,4 +26,6 @@ sock.on('new.msg.response', function(data){
 });
 
 sock.send('new.msg', {data: 'hello world'});
+
+sock.remove('new.msg');
 ```

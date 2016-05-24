@@ -75,6 +75,10 @@ exports.GoSock = function (url, options) {
     this.connected = 0;
   }
 
+  this.remove = function(event) {
+    this.ee.removeEvent(event);
+  }
+
   this.send(event, data) {
     switch (typeof data) {
       case 'object':
