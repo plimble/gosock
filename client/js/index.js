@@ -2,90 +2,92 @@ var EventEmitter = require('wolfy87-eventemitter');
 
 
 exports.GoSock = function (url, options) {
-  this.url = url;
-  this.ee = new EventEmitter();
-  this.ws = new WebSocket(url);
-  this.connected = this.ws.readyState === 1 ? true : false;
-  this.options = {
+  var self = this;
+  self.url = url;
+  self.ee = new EventEmitter();
+  self.ws = new WebSocket(url);
+  self.connected = self.ws.readyState === 1 ? true : false;
+  self.options = {
     retries: 5,
     retryInterval: 3000,
   };
 
   if (options) {
-    this.options = Object.assign(this.options, options);
+    self.options = Object.assign(self.options, options);
   }
 
-  this.on = function(event, callback) {
-    this.ee.addListener(event, callback);
+  self.on = function(event, callback) {
+    self.ee.addListener(event, callback);
   }
 
-  this._emit = function(event, data) {
-    this.ee.emitEvent(event, [data]);
+  self._emit = function(event, data) {
+    self.ee.emitEvent(event, [data]);
   }
 
-  this.ws.onopen(function(){
-    this._emit('open', null);
-  });
+  self.ws.onopen = function(){
+    self._emit('open', null);
+  };
 
-  this.ws.onmessage(function(data){
+  self.ws.onmessage = function(result){
+    var data = result.data;
     var delimIndex = data.indexOf(' ')
     var event = data.substr(0, delimIndex);
 
     try {
       data = JSON.parse(data.substr(delimIndex + 1));
-      this._emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
-    } catch() {
-      this._emit(data.substr(0, delimIndex), data.substr(delimIndex + 1));
+      self._emit(event, data);
+    } catch(err) {
+      self._emit(event, data.substr(delimIndex + 1));
     }
-  });
+  };
 
-  this.ws.onclose = function() {
-    this._emit('close', null);
-    this.connected = 0;
-    this._reconnect();
+  self.ws.onclose = function() {
+    self._emit('close', null);
+    self.connected = 0;
+    self._reconnect();
   }
 
-  this._reconnect = function() {
-    if (this.options.retries > 0) {
+  self._reconnect = function() {
+    if (self.options.retries > 0) {
       counter = 0;
       var retry = setInterval(function(){
-        if (counter === this.options.retries) {
+        if (counter === self.options.retries) {
           clearInterval(retry);
         }
 
-        if (!this.connected) {
-          this.ws = new WebSocket(this.url);
-          if (this.ws.readyState === 1) {
-            this.connected = true;
+        if (!self.connected) {
+          self.ws = new WebSocket(self.url);
+          if (self.ws.readyState === 1) {
+            self.connected = true;
             clearInterval(retry);
           }
         }
 
         counter++;
-      }, this.options.retryInterval);
+      }, self.options.retryInterval);
     }
   }
 
-  this.ws.onerror = function(err) {
-    this._emit('error', err);
+  self.ws.onerror = function(err) {
+    self._emit('error', err);
   }
 
-  this.close = function() {
-    this.ws.close();
-    this.connected = 0;
+  self.close = function() {
+    self.ws.close();
+    self.connected = 0;
   }
 
-  this.remove = function(event) {
-    this.ee.removeEvent(event);
+  self.remove = function(event) {
+    self.ee.removeEvent(event);
   }
 
-  this.send(event, data) {
+  self.send = function(event, data) {
     switch (typeof data) {
       case 'object':
-        this.ws.send(event + ' ' + JSON.stringify(data));
+        self.ws.send(event + ' ' + JSON.stringify(data));
         break;
       default:
-        this.ws.send(event + ' ' + data);
+        self.ws.send(event + ' ' + data);
     }
   }
 };
