@@ -30,7 +30,7 @@ exports.GoSock = function (url, options) {
 
   self.ws.onmessage = function(result){
     var data = result.data;
-    var delimIndex = data.indexOf(' ')
+    var delimIndex = data.indexOf('|')
     var event = data.substr(0, delimIndex);
 
     try {
@@ -84,10 +84,10 @@ exports.GoSock = function (url, options) {
   self.send = function(event, data) {
     switch (typeof data) {
       case 'object':
-        self.ws.send(event + ' ' + JSON.stringify(data));
+        self.ws.send(event + '|' + JSON.stringify(data));
         break;
       default:
-        self.ws.send(event + ' ' + data);
+        self.ws.send(event + '|' + data);
     }
   }
 };

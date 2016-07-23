@@ -1,26 +1,38 @@
 package gosock
 
-const ROOM_DEFAULT = "_0"
+import (
+	"sync"
+)
 
-type Room struct {
-	connections map[*Connection]bool
+const ROOM_DEFAULT = "_default"
+
+type room struct {
+	sync.RWMutex
+	connections map[*Connection]struct{}
 }
 
-func newRoom() *Room {
-	return &Room{
-		connections: make(map[*Connection]bool),
+func newRoom() *room {
+	return &room{
+		connections: make(map[*Connection]struct{}),
 	}
 }
 
-func (r *Room) register(c *Connection) {
-	r.connections[c] = true
+func (r *room) register(c *Connection) {
+	r.Lock()
+	r.connections[c] = struct{}{}
+	r.Unlock()
 }
 
-func (r *Room) unregister(c *Connection) {
+func (r *room) unregister(c *Connection) {
+	r.Lock()
 	delete(r.connections, c)
+	r.Unlock()
 }
 
-func (r *Room) isEmptyRoom() bool {
+func (r *room) isEmptyRoom() bool {
+	r.RLock()
+	defer r.RUnlock()
+
 	if len(r.connections) > 0 {
 		return false
 	}

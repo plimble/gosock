@@ -6,7 +6,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/kr/pretty"
-	"github.com/plimble/unik"
 )
 
 const (
@@ -24,25 +23,29 @@ const (
 )
 
 type Connection struct {
-	id   int64
-	uid  string
-	ws   *websocket.Conn
-	send chan []byte
+	uid   string
+	ws    *websocket.Conn
+	send  chan []byte
+	room  map[string]struct{}
+	hub   *hub
+	event *serverEventEmitter
 }
 
-func newConnection(uid string, c *websocket.Conn) *Connection {
+func newConnection(uid string, c *websocket.Conn, hub *hub, event *serverEventEmitter) *Connection {
 	return &Connection{
-		id:   unik.GenInt64(),
-		uid:  uid,
-		ws:   c,
-		send: make(chan []byte, 256),
+		uid:   uid,
+		ws:    c,
+		send:  make(chan []byte, 512),
+		room:  make(map[string]struct{}),
+		hub:   hub,
+		event: event,
 	}
 }
 
 func (c *Connection) readPump() {
 	defer func() {
 		pretty.Println("close")
-		h.unregister <- c
+		c.hub.unregister <- c
 		c.ws.Close()
 	}()
 	c.ws.SetReadLimit(maxMessageSize)
@@ -53,7 +56,7 @@ func (c *Connection) readPump() {
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 				log.Printf("error: %v", err)
-				evt.emitError(err, c)
+				c.event.emitError(err, c)
 			}
 			break
 		}
@@ -61,7 +64,7 @@ func (c *Connection) readPump() {
 		pretty.Println(string(message))
 		event, data := getRequestMessage(message)
 
-		evt.emit(event, data, c)
+		c.event.emit(event, data, c)
 	}
 }
 
@@ -99,35 +102,36 @@ func (c *Connection) writePump() {
 	}
 }
 
-func (c *Connection) joinDefaultRoom() {
-	h.joinDefaultRoom <- newResponseMessage("", "", "", nil, c)
+func (c *Connection) register() {
+	c.hub.register <- c
 }
 
 func (c *Connection) Join(room string) {
-	h.join <- newResponseMessage(room, "", "", nil, c)
+	c.hub.join <- newResponseMessage(room, "", "", nil, c)
 }
 
 func (c *Connection) Leave(room string) {
-	h.leave <- newResponseMessage(room, "", "", nil, c)
+	c.hub.leave <- newResponseMessage(room, "", "", nil, c)
 }
 
 func (c *Connection) BroadcastRoom(room, event string, data []byte) {
-	h.broadcast <- newResponseMessage(room, event, "", data, c)
+	c.hub.broadcast <- newResponseMessage(room, event, "", data, c)
 }
 
 func (c *Connection) Broadcast(event string, data []byte) {
-	h.broadcast <- newResponseMessage("", event, "", data, c)
+	c.hub.broadcast <- newResponseMessage(ROOM_DEFAULT, event, "", data, c)
 }
 
 func (c *Connection) Reply(event string, data []byte) {
-	h.request <- newResponseMessage(ROOM_DEFAULT, event, "", data, c)
+	c.hub.request <- newResponseMessage(ROOM_DEFAULT, event, "", data, c)
 }
 
 func (c *Connection) To(id, event string, data []byte) {
-	h.to <- newResponseMessage(ROOM_DEFAULT, event, "", data, c)
+	c.hub.to <- newResponseMessage(ROOM_DEFAULT, event, "", data, c)
 }
 
 func (c *Connection) Close() {
-	evt.emit(EVENT_CLOSED, nil, nil)
-	h.unregister <- c
+	c.Leave(ROOM_DEFAULT)
+	c.hub.unregister <- c
+	c.event.emit(EVENT_DISCONNECTED, nil, c)
 }
