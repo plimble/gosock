@@ -39,5 +39,6 @@ func main() {
 	})
 
 	http.HandleFunc("/", g.Handler())
+	log.Println("listen on :3000")
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }

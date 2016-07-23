@@ -6,8 +6,7 @@ type hub struct {
 	connections map[string]map[*Connection]struct{}
 
 	// Register requests from the connections.
-	joinDefaultRoom chan *responseMessage
-	join            chan *responseMessage
+	join chan *responseMessage
 
 	// Unregister requests from connections.
 	leave chan *responseMessage
