@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/garyburd/redigo/redis"
-	ss "github.com/raz-varren/sacrificial-socket"
+	"github.com/plimble/gosock"
 	"github.com/raz-varren/sacrificial-socket/log"
 )
 
@@ -35,7 +35,7 @@ func (r *Redis) Shutdown() {
 //
 //BroadcastToBackend must be safe for concurrent use by multiple
 //go routines
-func (r *Redis) BroadcastToBackend(b *ss.BroadcastMsg) {
+func (r *Redis) BroadcastToBackend(b *gosock.BroadcastMsg) {
 	msg, _ := json.Marshal(&BCData{
 		Event: b.EventName,
 		Data:  b.Data,
@@ -51,7 +51,7 @@ func (r *Redis) BroadcastToBackend(b *ss.BroadcastMsg) {
 //
 //RoomcastToBackend must be safe for concurrent use by multiple
 //go routines
-func (r *Redis) RoomcastToBackend(rr *ss.RoomMsg) {
+func (r *Redis) RoomcastToBackend(rr *gosock.RoomMsg) {
 	msg, _ := json.Marshal(&RCData{
 		Room:  rr.RoomName,
 		Event: rr.EventName,
@@ -73,7 +73,7 @@ type BCData struct {
 //
 //b consumes a BroadcastMsg and dispatches
 //it to all sockets on this server
-func (r *Redis) BroadcastFromBackend(b chan<- *ss.BroadcastMsg) {
+func (r *Redis) BroadcastFromBackend(b chan<- *gosock.BroadcastMsg) {
 	for {
 		switch n := r.psc.Receive().(type) {
 		case redis.Message:
@@ -84,7 +84,7 @@ func (r *Redis) BroadcastFromBackend(b chan<- *ss.BroadcastMsg) {
 
 			switch n.Channel {
 			case r.bc:
-				b <- &ss.BroadcastMsg{EventName: bcast.Event, Data: bcast.Data}
+				b <- &gosock.BroadcastMsg{EventName: bcast.Event, Data: bcast.Data}
 			}
 		case redis.Subscription:
 			log.Info.Printf("%s: %s %d\n", n.Channel, n.Kind, n.Count)
@@ -107,7 +107,7 @@ type RCData struct {
 //
 //r consumes a RoomMsg and dispatches it to all sockets
 //that are members the specified room
-func (r *Redis) RoomcastFromBackend(rr chan<- *ss.RoomMsg) {
+func (r *Redis) RoomcastFromBackend(rr chan<- *gosock.RoomMsg) {
 	for {
 		switch n := r.psc.Receive().(type) {
 		case redis.Message:
@@ -118,7 +118,7 @@ func (r *Redis) RoomcastFromBackend(rr chan<- *ss.RoomMsg) {
 
 			switch n.Channel {
 			case r.rc:
-				rr <- &ss.RoomMsg{RoomName: rcast.Room, EventName: rcast.Event, Data: rcast.Data}
+				rr <- &gosock.RoomMsg{RoomName: rcast.Room, EventName: rcast.Event, Data: rcast.Data}
 			}
 		case redis.Subscription:
 			log.Info.Printf("%s: %s %d\n", n.Channel, n.Kind, n.Count)

@@ -1,7 +1,6 @@
 package gosock
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -11,6 +10,7 @@ import (
 	"github.com/kataras/iris"
 	"github.com/leavengood/websocket"
 	"github.com/raz-varren/sacrificial-socket/log"
+	"github.com/valyala/fasthttp"
 )
 
 const ( //                        ASCII chars
@@ -111,9 +111,22 @@ func (serv *SocketServer) OnDisconnect(handleFunc func(*Socket)) {
 }
 
 //WebHandler returns a http.Handler to be passed into http.Handle
-func (serv *SocketServer) WebHandler(auth Auth) iris.HandlerFunc {
+func (serv *SocketServer) WebHandler(auth Auth, origins []string) iris.HandlerFunc {
 	var upgrader = websocket.FastHTTPUpgrader{
 		Handler: serv.loop,
+		CheckOrigin: func(ctx *fasthttp.RequestCtx) bool {
+			if origins == nil || len(origins) == 0 {
+				return true
+			}
+
+			for _, origin := range origins {
+				if origin == string(ctx.Host()) {
+					return true
+				}
+			}
+
+			return false
+		},
 	}
 
 	return func(ctx *iris.Context) {
@@ -151,12 +164,13 @@ func (serv *SocketServer) loop(ws *websocket.Conn) {
 
 	for {
 		msg, err := s.receive()
-		fmt.Println(msg, err)
 		if err == io.EOF {
 			return
 		}
 		if err != nil {
-			log.Err.Println(err)
+			if err.Error() != "websocket: close 1001 (going away)" {
+				log.Err.Println(err)
+			}
 			return
 		}
 
