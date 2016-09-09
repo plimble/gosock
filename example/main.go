@@ -14,7 +14,7 @@ func main() {
 		ss.Emit("echo", data)
 	})
 
-	s.Get("/socket", ws.WebHandler(nil))
+	s.Get("/socket", ws.WebHandler(nil, nil))
 
 	s.Listen(":9999")
 }
