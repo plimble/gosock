@@ -8,8 +8,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/iris-contrib/websocket"
 	"github.com/kataras/iris"
+	"github.com/leavengood/websocket"
 	"github.com/raz-varren/sacrificial-socket/log"
 )
 
@@ -112,7 +112,9 @@ func (serv *SocketServer) OnDisconnect(handleFunc func(*Socket)) {
 
 //WebHandler returns a http.Handler to be passed into http.Handle
 func (serv *SocketServer) WebHandler(auth Auth) iris.HandlerFunc {
-	var upgrader = websocket.New(serv.loop)
+	var upgrader = websocket.FastHTTPUpgrader{
+		Handler: serv.loop,
+	}
 
 	return func(ctx *iris.Context) {
 		var err error
@@ -123,9 +125,7 @@ func (serv *SocketServer) WebHandler(auth Auth) iris.HandlerFunc {
 			}
 		}
 
-		if err = upgrader.Upgrade(ctx); err != nil {
-			ctx.Text(500, err.Error())
-		}
+		upgrader.UpgradeHandler(ctx.RequestCtx)
 	}
 }
 

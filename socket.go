@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/iris-contrib/websocket"
+	"github.com/leavengood/websocket"
 	"github.com/raz-varren/sacrificial-socket/log"
 	"github.com/raz-varren/sacrificial-socket/tools"
 )
