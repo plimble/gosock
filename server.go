@@ -1,71 +1,185 @@
 package gosock
 
 import (
-	"log"
-	"net/http"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
-	"github.com/gorilla/websocket"
+	"github.com/iris-contrib/websocket"
+	"github.com/kataras/iris"
+	"github.com/raz-varren/sacrificial-socket/log"
 )
 
-type GoSock struct {
-	hub   *hub
-	event *serverEventEmitter
+const ( //                        ASCII chars
+	startOfHeaderByte uint8 = 1 //SOH
+	startOfDataByte         = 2 //STX
+
+	SupportedSubProtocol string = "sac-sock"
+)
+
+type Auth func(ctx *iris.Context) error
+
+type event struct {
+	eventName    string
+	eventHandler func(*Socket, []byte)
 }
 
-func New() *GoSock {
-	return &GoSock{
-		hub: &hub{
-			room:        map[string]*room{ROOM_DEFAULT: newRoom()},
-			connections: make(map[string]map[*Connection]struct{}),
-			join:        make(chan *responseMessage, 1024),
-			leave:       make(chan *responseMessage, 1024),
-			broadcast:   make(chan *responseMessage, 1024),
-			request:     make(chan *responseMessage, 1024),
-			to:          make(chan *responseMessage, 1024),
-			register:    make(chan *Connection, 1024),
-			unregister:  make(chan *Connection, 1024),
-		},
-		event: &serverEventEmitter{
-			events: make(map[string][]ServerEventHandler),
-			errors: []ServerErrorHandler{},
-		},
+//SocketServer manages the coordination between
+//sockets, rooms, events and the socket hub
+type SocketServer struct {
+	hub              *socketHub
+	events           map[string]*event
+	onConnectFunc    func(*Socket)
+	onDisconnectFunc func(*Socket)
+	l                *sync.RWMutex
+}
+
+//NewServer creates a new instance of SocketServer
+func NewServer() *SocketServer {
+	s := &SocketServer{
+		hub:    newHub(),
+		events: make(map[string]*event),
+		l:      &sync.RWMutex{},
+	}
+
+	return s
+}
+
+//EnableSignalShutdown listens for linux syscalls SIGHUP, SIGINT, SIGTERM, SIGQUIT, SIGKILL and
+//calls the SocketServer.Shutdown() to perform a clean shutdown. true will be passed into complete
+//after the Shutdown proccess is finished
+func (serv *SocketServer) EnableSignalShutdown(complete chan<- bool) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT,
+		syscall.SIGKILL)
+
+	go func() {
+		<-c
+		complete <- serv.Shutdown()
+	}()
+}
+
+//Shutdown closes all active sockets and triggers the Shutdown()
+//method on any MultihomeBackend that is currently set.
+func (serv *SocketServer) Shutdown() bool {
+	log.Info.Println("shutting down")
+	//complete := serv.hub.shutdown()
+
+	serv.hub.shutdownCh <- true
+	socketList := <-serv.hub.socketList
+
+	for _, s := range socketList {
+		s.Close()
+	}
+
+	if serv.hub.multihomeEnabled {
+		log.Info.Println("shutting down multihome backend")
+		serv.hub.multihomeBackend.Shutdown()
+		log.Info.Println("backend shutdown")
+	}
+
+	log.Info.Println("shutdown")
+	return true
+}
+
+//On registers event functions to be called on individual Socket connections
+//when the server's socket receives an Emit from the client's socket.
+//
+//Any event functions registered with On, must be safe for concurrent use by multiple
+//go routines
+func (serv *SocketServer) On(eventName string, handleFunc func(*Socket, []byte)) {
+	serv.events[eventName] = &event{eventName, handleFunc} //you think you can handle the func?
+}
+
+//OnConnect registers an event function to be called whenever a new Socket connection
+//is created
+func (serv *SocketServer) OnConnect(handleFunc func(*Socket)) {
+	serv.onConnectFunc = handleFunc
+}
+
+//OnDisconnect registers an event function to be called as soon as a Socket connection
+//is closed
+func (serv *SocketServer) OnDisconnect(handleFunc func(*Socket)) {
+	serv.onDisconnectFunc = handleFunc
+}
+
+//WebHandler returns a http.Handler to be passed into http.Handle
+func (serv *SocketServer) WebHandler(auth Auth) iris.HandlerFunc {
+	var upgrader = websocket.New(serv.loop)
+
+	return func(ctx *iris.Context) {
+		var err error
+		if auth != nil {
+			if err = auth(ctx); err != nil {
+				ctx.Text(401, err.Error())
+				return
+			}
+		}
+
+		if err = upgrader.Upgrade(ctx); err != nil {
+			ctx.Text(500, err.Error())
+		}
 	}
 }
 
-func (g *GoSock) Handler() http.HandlerFunc {
-	var upgrader = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+//SetMultihomeBackend registers a MultihomeBackend interface and calls it's Init() method
+func (serv *SocketServer) SetMultihomeBackend(b MultihomeBackend) {
+	serv.hub.setMultihomeBackend(b)
+}
+
+//loop handles all the coordination between new sockets
+//reading frames and dispatching events
+func (serv *SocketServer) loop(ws *websocket.Conn) {
+	s := newSocket(serv, ws)
+	log.Info.Println(s.ID(), "connected")
+	defer s.Close()
+
+	serv.l.RLock()
+	e := serv.onConnectFunc
+	serv.l.RUnlock()
+
+	if e != nil {
+		e(s)
 	}
 
-	go g.hub.run()
-	return func(w http.ResponseWriter, r *http.Request) {
-		ws, err := upgrader.Upgrade(w, r, nil)
+	for {
+		msg, err := s.receive()
+		fmt.Println(msg, err)
+		if err == io.EOF {
+			return
+		}
 		if err != nil {
-			log.Println(err)
+			log.Err.Println(err)
 			return
 		}
 
-		c := newConnection(r.URL.Query().Get("uid"), ws, g.hub, g.event)
-		c.register()
-		c.Join(ROOM_DEFAULT)
-		g.event.emit(EVENT_CONNECTION, nil, c)
-		go c.writePump()
-		c.readPump()
+		eventName := ""
+		contentIdx := 0
+
+		for idx, chr := range msg {
+			if chr == startOfDataByte {
+				eventName = string(msg[:idx])
+				contentIdx = idx + 1
+				break
+			}
+		}
+		if eventName == "" {
+			continue //no event to dispatch
+		}
+
+		serv.l.RLock()
+		e, exists := serv.events[eventName]
+		serv.l.RUnlock()
+
+		if exists {
+			go e.eventHandler(s, msg[contentIdx:])
+		}
 	}
-}
-
-func (g *GoSock) On(event string, handler ServerEventHandler) {
-	g.event.register(event, handler)
-}
-
-func (g *GoSock) OnConnection(handler ServerEventHandler) {
-	g.event.register(EVENT_CONNECTION, handler)
-}
-
-func (g *GoSock) OnError(handler ServerErrorHandler) {
-	g.event.registerError(handler)
-}
-
-func (g *GoSock) OnDisconnected(handler ServerEventHandler) {
-	g.event.register(EVENT_DISCONNECTED, handler)
 }

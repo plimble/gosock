@@ -1,44 +1,20 @@
 package main
 
 import (
-	"log"
-	"net/http"
-
-	"github.com/kr/pretty"
+	"github.com/kataras/iris"
 	"github.com/plimble/gosock"
 )
 
 func main() {
-	g := gosock.New()
-	g.OnConnection(func(data []byte, c *gosock.Connection) {
-		pretty.Println("connected!!!")
+	s := iris.New()
+
+	ws := gosock.NewServer()
+
+	ws.On("echo", func(ss *gosock.Socket, data []byte) {
+		ss.Emit("echo", data)
 	})
 
-	g.OnError(func(err error, c *gosock.Connection) {
-		pretty.Println(err)
-	})
+	s.Get("/socket", ws.WebHandler(nil))
 
-	g.OnDisconnected(func(data []byte, c *gosock.Connection) {
-		pretty.Println("disconnected!!!")
-	})
-
-	g.On("broadcast", func(data []byte, c *gosock.Connection) {
-		c.Broadcast("getbroadcast", data)
-	})
-
-	g.On("broadcastroom", func(data []byte, c *gosock.Connection) {
-		c.BroadcastRoom("rooma", "broadcastroom", data)
-	})
-
-	g.On("pm", func(data []byte, c *gosock.Connection) {
-		c.To("1", "getpm", data)
-	})
-
-	g.On("req", func(data []byte, c *gosock.Connection) {
-		c.Reply("getreq", data)
-	})
-
-	http.HandleFunc("/", g.Handler())
-	log.Println("listen on :3000")
-	log.Fatal(http.ListenAndServe(":3000", nil))
+	s.Listen(":9999")
 }
