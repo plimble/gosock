@@ -19,6 +19,7 @@ type Socket struct {
 	serv   *SocketServer
 	roomsl *sync.RWMutex
 	rooms  map[string]bool
+	data   map[string]interface{}
 }
 
 const (
@@ -63,6 +64,7 @@ func newSocket(serv *SocketServer, ws *websocket.Conn) *Socket {
 		serv:   serv,
 		roomsl: &sync.RWMutex{},
 		rooms:  make(map[string]bool),
+		data:   make(map[string]interface{}),
 	}
 	serv.hub.addSocket(s)
 	return s
@@ -206,4 +208,17 @@ func (s *Socket) Close() {
 	}
 
 	s.serv.hub.removeSocket(s)
+}
+
+func (s *Socket) Get(key string, defaultVal interface{}) interface{} {
+	d, ok := s.data[key]
+	if !ok {
+		return defaultVal
+	}
+
+	return d
+}
+
+func (s *Socket) Set(key string, val interface{}) {
+	s.data[key] = val
 }
