@@ -104,13 +104,14 @@ func (h *socketHub) listen() {
 				}
 			}
 		case c := <-h.roomMsgCh:
-			if room, exists := h.rooms[c.RoomName]; exists {
-				for _, s := range room.sockets {
-					s.Emit(c.EventName, c.Data)
-				}
-			}
 			if h.multihomeEnabled { //the room may exist on the other end
 				go h.multihomeBackend.RoomcastToBackend(c)
+			} else {
+				if room, exists := h.rooms[c.RoomName]; exists {
+					for _, s := range room.sockets {
+						s.Emit(c.EventName, c.Data)
+					}
+				}
 			}
 		case c := <-h.broomcastCh:
 			if room, exists := h.rooms[c.RoomName]; exists {
@@ -119,11 +120,12 @@ func (h *socketHub) listen() {
 				}
 			}
 		case c := <-h.broadcastCh:
-			for _, s := range h.sockets {
-				s.Emit(c.EventName, c.Data)
-			}
 			if h.multihomeEnabled {
 				go h.multihomeBackend.BroadcastToBackend(c)
+			} else {
+				for _, s := range h.sockets {
+					s.Emit(c.EventName, c.Data)
+				}
 			}
 		case c := <-h.bbroadcastCh:
 			for _, s := range h.sockets {

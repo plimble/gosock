@@ -9,25 +9,26 @@ import (
 )
 
 type Redis struct {
-	psc redis.PubSubConn
-	c   redis.Conn
-	ch  string
-	bc  string
-	rc  string
+	pscRoom      redis.PubSubConn
+	pscBroadCast redis.PubSubConn
+	c            redis.Conn
+	ch           string
+	bc           string
+	rc           string
 }
 
 func NewRedis(ch string, p *redis.Pool) *Redis {
-	return &Redis{redis.PubSubConn{Conn: p.Get()}, p.Get(), ch, ch + "." + "bc", ch + "." + "rc"}
+	return &Redis{redis.PubSubConn{Conn: p.Get()}, redis.PubSubConn{Conn: p.Get()}, p.Get(), ch, ch + "." + "bc", ch + "." + "rc"}
 }
 
 func (r *Redis) Init() {
-	r.psc.Subscribe(r.bc)
-	r.psc.Subscribe(r.rc)
+	r.pscBroadCast.Subscribe(r.bc)
+	r.pscRoom.Subscribe(r.rc)
 }
 
 func (r *Redis) Shutdown() {
-	r.psc.Unsubscribe(r.bc)
-	r.psc.Unsubscribe(r.rc)
+	r.pscBroadCast.Unsubscribe(r.bc)
+	r.pscRoom.Unsubscribe(r.rc)
 }
 
 //BroadcastToBackend is called everytime a BroadcastMsg is
@@ -75,9 +76,9 @@ type BCData struct {
 //it to all sockets on this server
 func (r *Redis) BroadcastFromBackend(b chan<- *gosock.BroadcastMsg) {
 	for {
-		switch n := r.psc.Receive().(type) {
+		switch n := r.pscBroadCast.Receive().(type) {
 		case redis.Message:
-			log.Info.Printf("Message: %s %s\n", n.Channel, n.Data)
+			log.Info.Printf("Broad Message: %s %s\n", n.Channel, n.Data)
 
 			bcast := &BCData{}
 			json.Unmarshal(n.Data, bcast)
@@ -109,9 +110,9 @@ type RCData struct {
 //that are members the specified room
 func (r *Redis) RoomcastFromBackend(rr chan<- *gosock.RoomMsg) {
 	for {
-		switch n := r.psc.Receive().(type) {
+		switch n := r.pscRoom.Receive().(type) {
 		case redis.Message:
-			log.Info.Printf("Message: %s %s\n", n.Channel, n.Data)
+			log.Info.Printf("Room Message: %s %s\n", n.Channel, n.Data)
 
 			rcast := &RCData{}
 			json.Unmarshal(n.Data, rcast)
